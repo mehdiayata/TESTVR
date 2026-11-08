@@ -1,0 +1,36 @@
+services:
+  app:
+    build: .
+    ports:
+      - "5173:5173"
+    environment:
+      LOCAL_IP: ${LOCAL_IP:?Définir LOCAL_IP dans le fichier .env}
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /app/.certs
+
+        if [ ! -f /app/.certs/test-vr-local-ca-key.pem ]; then
+          openssl req -x509 -newkey rsa:4096 -sha256 -nodes -days 3650             -keyout /app/.certs/test-vr-local-ca-key.pem             -out /app/.certs/test-vr-local-ca.crt             -subj "/CN=Test VR Local CA"
+        fi
+
+        if [ ! -f /app/.certs/server-key.pem ] || [ "$$(cat /app/.certs/server-ip 2>/dev/null || true)" != "$$LOCAL_IP" ]; then
+          openssl req -new -newkey rsa:2048 -sha256 -nodes             -keyout /app/.certs/server-key.pem             -out /app/.certs/server.csr             -subj "/CN=$$LOCAL_IP"
+
+          printf 'subjectAltName=DNS:localhost,IP:127.0.0.1,IP:%s\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n' "$$LOCAL_IP" > /tmp/test-vr-server.ext
+
+          openssl x509 -req -sha256 -days 825             -in /app/.certs/server.csr             -CA /app/.certs/test-vr-local-ca.crt             -CAkey /app/.certs/test-vr-local-ca-key.pem             -CAcreateserial             -out /app/.certs/server-cert.pem             -extfile /tmp/test-vr-server.ext
+
+          printf %s "$$LOCAL_IP" > /app/.certs/server-ip
+          rm -f /app/.certs/server.csr /app/.certs/test-vr-local-ca.srl
+        fi
+
+        npm run dev -- --host 0.0.0.0
+
+volumes:
+  node_modules:

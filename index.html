@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#080d18" />
+    <title>Test VR</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="scene" aria-label="Scène 3D de test"></canvas>
+      <section class="overlay" aria-live="polite">
+        <h1>Test WebXR</h1>
+        <p id="score">Points : 0</p>
+        <p id="status">Initialisation de la scène…</p>
+        <button id="enter-vr" type="button" disabled>Entrer en VR</button>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,1 @@
+Test d’écriture depuis WSL avec Codex.
