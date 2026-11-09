@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${VR_PORT}:${VR_PORT}"
+    environment:
+      VR_PORT: ${VR_PORT}
+      VR_QUEST_IP: ${VR_QUEST_IP}
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - certificates:/app/.certs
+    command: ["sh", "scripts/start-dev.sh"]
+
+  blender:
+    profiles: [tools]
+    image: vr-toolkit-blender:1
+    build:
+      context: .
+      dockerfile: Dockerfile.blender
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    environment:
+      HOME: /tmp
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    entrypoint: ["blender", "--background", "--factory-startup", "--python-exit-code", "1"]
+
+volumes:
+  node_modules:
+  certificates:

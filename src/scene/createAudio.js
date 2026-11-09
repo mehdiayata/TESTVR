@@ -1,9 +1,11 @@
 import * as THREE from 'three';
+import { BASKET } from './createCourt.js';
 
-export function createAudio(camera, ball) {
+export function createAudio(camera, ball, scene) {
   const listener = new THREE.AudioListener();
   const music = new THREE.Audio(listener);
   const bounce = new THREE.PositionalAudio(listener);
+  const buzzer = new THREE.PositionalAudio(listener);
   const loader = new THREE.AudioLoader();
   let enabled = false;
   let disposed = false;
@@ -11,11 +13,17 @@ export function createAudio(camera, ball) {
 
   camera.add(listener, music);
   ball.add(bounce);
+  scene.add(buzzer);
+  buzzer.position.set(BASKET.x, BASKET.y, BASKET.z);
   music.setLoop(true);
   music.setVolume(0.13);
   bounce.setRefDistance(1.5);
   bounce.setMaxDistance(18);
   bounce.setRolloffFactor(1.2);
+  buzzer.setRefDistance(3);
+  buzzer.setMaxDistance(20);
+  buzzer.setRolloffFactor(1.1);
+  buzzer.setVolume(0.55);
 
   function playMusic() {
     if (enabled && music.buffer && !music.isPlaying) music.play();
@@ -30,6 +38,10 @@ export function createAudio(camera, ball) {
   loader.load(`${import.meta.env.BASE_URL}assets/audio/basketball-bounce.wav`, (buffer) => {
     if (!disposed) bounce.setBuffer(buffer);
   }, undefined, (error) => console.warn('Son du ballon indisponible.', error));
+
+  loader.load(`${import.meta.env.BASE_URL}assets/audio/basket-buzzer.wav`, (buffer) => {
+    if (!disposed) buzzer.setBuffer(buffer);
+  }, undefined, (error) => console.warn('Buzzer du panier indisponible.', error));
 
   function unlock() {
     listener.context.resume().catch((error) => console.warn('Audio indisponible.', error));
@@ -51,10 +63,17 @@ export function createAudio(camera, ball) {
     bounce.play();
   }
 
+  function playBuzzer() {
+    if (!enabled || !buzzer.buffer) return;
+    if (buzzer.isPlaying) buzzer.stop();
+    buzzer.play();
+  }
+
   function stop() {
     enabled = false;
     if (music.isPlaying) music.stop();
     if (bounce.isPlaying) bounce.stop();
+    if (buzzer.isPlaying) buzzer.stop();
   }
 
   function dispose() {
@@ -62,9 +81,11 @@ export function createAudio(camera, ball) {
     stop();
     music.disconnect();
     bounce.disconnect();
+    buzzer.disconnect();
     camera.remove(listener, music);
     ball.remove(bounce);
+    scene.remove(buzzer);
   }
 
-  return { unlock, start, playBounce, stop, dispose };
+  return { unlock, start, playBounce, playBuzzer, stop, dispose };
 }

@@ -6,57 +6,90 @@ const SPRING = 230;
 const DAMPING = 29;
 const MAX_SPEED = 18;
 const REBOUND = 0.74;
-const DRIBBLE_FOLLOW = 8;
-const DRIBBLE_SPEED = 3.5;
+const DUNK_RISE_SECONDS = 0.13;
+const DUNK_DROP_SECONDS = 0.18;
+const DUNK_TOP_ABOVE_RIM = 0.28;
+const DUNK_DROP_DISTANCE = 0.86;
 
 export function createBallPhysics(ball, radius, onBounce = () => {}, onScore = () => {}) {
   const velocity = new THREE.Vector3();
   const angularVelocity = new THREE.Vector3();
   const target = new THREE.Vector3();
-  const dribbleTarget = new THREE.Vector3();
   const normal = new THREE.Vector3();
   const rimPoint = new THREE.Vector3();
+  const dunkStart = new THREE.Vector3();
   let held = false;
-  let dribbling = false;
   let aboveRim = false;
   let scoreEligible = true;
+  let dunkTime = -1;
+  let dunkScored = false;
 
-  function hold(position) {
+  function hold(position, snap = false) {
+    if (dunkTime >= 0) return;
     target.copy(position);
     held = true;
-    dribbling = false;
     aboveRim = false;
+    if (snap) {
+      // Both hands define one fixed ball centre; spring lag would move it off-axis.
+      ball.position.copy(position);
+      velocity.set(0, 0, 0);
+      angularVelocity.set(0, 0, 0);
+    }
   }
 
-  function release() {
+  function release(playerMomentum = null) {
     held = false;
-    dribbling = false;
-    velocity.set(0, 0, 0);
+    // Keep only the runner's horizontal momentum. The ball then moves freely.
+    velocity.set(playerMomentum?.x ?? 0, 0, playerMomentum?.z ?? 0);
     angularVelocity.set(0, 0, 0);
   }
 
   function shoot(impulse) {
+    dunkTime = -1;
     held = false;
-    dribbling = false;
     velocity.copy(impulse).clampLength(0, MAX_SPEED);
     angularVelocity.set(impulse.z * 0.4, impulse.x * 0.35, -impulse.x * 0.25);
     scoreEligible = true;
     aboveRim = false;
   }
 
-  function startDribble(position) {
-    release();
-    dribbling = true;
-    dribbleTarget.copy(position);
-    velocity.y = -2.6;
+  function dunk() {
+    if (!held || dunkTime >= 0) return false;
+    dunkStart.copy(ball.position);
+    held = false;
+    aboveRim = false;
+    scoreEligible = false;
+    dunkScored = false;
+    dunkTime = 0;
+    velocity.set(0, 0, 0);
+    angularVelocity.set(0, 0, 0);
+    return true;
   }
 
-  function guideDribble(position) {
-    dribbleTarget.copy(position);
-  }
+  function integrateDunk(dt) {
+    dunkTime += dt;
+    if (dunkTime <= DUNK_RISE_SECONDS) {
+      const progress = dunkTime / DUNK_RISE_SECONDS;
+      const eased = progress * progress * (3 - 2 * progress);
+      ball.position.set(
+        THREE.MathUtils.lerp(dunkStart.x, BASKET.x, eased),
+        THREE.MathUtils.lerp(dunkStart.y, BASKET.y + DUNK_TOP_ABOVE_RIM, eased),
+        THREE.MathUtils.lerp(dunkStart.z, BASKET.z, eased),
+      );
+      return;
+    }
 
-  function stopDribble() {
-    dribbling = false;
+    const descent = Math.min(1, (dunkTime - DUNK_RISE_SECONDS) / DUNK_DROP_SECONDS);
+    ball.position.set(BASKET.x, BASKET.y + DUNK_TOP_ABOVE_RIM - descent * DUNK_DROP_DISTANCE, BASKET.z);
+    if (!dunkScored && ball.position.y <= BASKET.y) {
+      dunkScored = true;
+      velocity.set(0, -DUNK_DROP_DISTANCE / DUNK_DROP_SECONDS, 0);
+      onScore(velocity, 'dunk');
+    }
+    if (descent === 1) {
+      dunkTime = -1;
+      velocity.set(0, -4, 0);
+    }
   }
 
   function bounceOnPlane(height) {
@@ -113,7 +146,11 @@ export function createBallPhysics(ball, radius, onBounce = () => {}, onScore = (
       if (x * x + z * z < clearRadius * clearRadius) {
         scoreEligible = false;
         aboveRim = false;
-        onScore();
+        onScore(velocity);
+        // The woven net takes a little energy out of a successful shot.
+        velocity.x *= 0.82;
+        velocity.y *= 0.8;
+        velocity.z *= 0.82;
       }
     }
 
@@ -123,6 +160,10 @@ export function createBallPhysics(ball, radius, onBounce = () => {}, onScore = (
   }
 
   function integrate(dt) {
+    if (dunkTime >= 0) {
+      integrateDunk(dt);
+      return;
+    }
     const previousX = ball.position.x;
     const previousY = ball.position.y;
     const previousZ = ball.position.z;
@@ -134,13 +175,6 @@ export function createBallPhysics(ball, radius, onBounce = () => {}, onScore = (
     } else {
       velocity.y -= GRAVITY * dt;
       velocity.multiplyScalar(1 - 0.05 * dt);
-      if (dribbling) {
-        const follow = Math.min(1, DRIBBLE_FOLLOW * dt);
-        const desiredX = THREE.MathUtils.clamp((dribbleTarget.x - ball.position.x) * 7, -DRIBBLE_SPEED, DRIBBLE_SPEED);
-        const desiredZ = THREE.MathUtils.clamp((dribbleTarget.z - ball.position.z) * 7, -DRIBBLE_SPEED, DRIBBLE_SPEED);
-        velocity.x += (desiredX - velocity.x) * follow;
-        velocity.z += (desiredZ - velocity.z) * follow;
-      }
     }
 
     velocity.clampLength(0, MAX_SPEED);
@@ -153,10 +187,8 @@ export function createBallPhysics(ball, radius, onBounce = () => {}, onScore = (
     if (ball.position.y < radius) {
       const impact = -velocity.y;
       bounceOnPlane(0);
-      if (!held && impact > 0.7) onBounce(impact);
-      if (dribbling) {
-        const peakHeight = THREE.MathUtils.clamp(dribbleTarget.y - 0.12, 0.65, 1.3);
-        velocity.y = Math.sqrt(2 * GRAVITY * (peakHeight - radius));
+      if (!held && impact > 0.7) {
+        onBounce(impact);
       }
     }
 
@@ -194,5 +226,12 @@ export function createBallPhysics(ball, radius, onBounce = () => {}, onScore = (
     }
   }
 
-  return { hold, release, shoot, startDribble, guideDribble, stopDribble, step };
+  function cancelDunk() {
+    if (dunkTime < 0) return;
+    dunkTime = -1;
+    held = false;
+    velocity.set(0, 0, 0);
+  }
+
+  return { hold, release, shoot, dunk, cancelDunk, step };
 }

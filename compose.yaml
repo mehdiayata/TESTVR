@@ -32,5 +32,18 @@ services:
 
         npm run dev -- --host 0.0.0.0
 
+  blender:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: Dockerfile.blender
+    working_dir: /workspace
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    environment:
+      HOME: /tmp
+    volumes:
+      - .:/workspace
+    entrypoint: ["blender", "--background", "--factory-startup", "--python-exit-code", "1"]
+
 volumes:
   node_modules:

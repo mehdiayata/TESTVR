@@ -11,6 +11,8 @@ const https = fs.existsSync(keyPath) && fs.existsSync(certificatePath)
   : undefined;
 
 export default defineConfig({
+  // GitHub Pages serves project sites below /<repository>/; local HTTPS keeps /.
+  base: process.env.GITHUB_PAGES_BASE || '/',
   server: {
     host: '0.0.0.0',
     port: 5173,

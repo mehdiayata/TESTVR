@@ -5,9 +5,14 @@ import { createBall } from './createBall.js';
 import { createBallPhysics } from './createBallPhysics.js';
 import { createAudio } from './createAudio.js';
 import { createScoreboard } from './createScoreboard.js';
+import { createDunkEffects } from './createDunkEffects.js';
 import { createVrControllers } from '../vr/createVrControllers.js';
 import { createBallInteraction } from '../vr/createBallInteraction.js';
 import { createLocomotion } from '../vr/createLocomotion.js';
+import { createSpeedLines } from '../vr/createSpeedLines.js';
+import { createGameplaySettings } from '../vr/gameplaySettings.js';
+import { createGameplayMenu } from '../vr/createGameplayMenu.js';
+import { isInDunkZone } from '../vr/dunkZone.js';
 
 export function createScene(canvas, onScore = () => {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -18,6 +23,7 @@ export function createScene(canvas, onScore = () => {}) {
   renderer.toneMappingExposure = 1.3;
 
   const scene = new THREE.Scene();
+  const settings = createGameplaySettings();
   scene.background = new THREE.Color(0x9db2b9);
   scene.fog = new THREE.Fog(0x9db2b9, 28, 65);
 
@@ -42,21 +48,45 @@ export function createScene(canvas, onScore = () => {}) {
   keyLight.shadow.camera.far = 45;
   scene.add(keyLight);
 
-  const disposeCourt = createCourt(scene);
+  const court = createCourt(scene);
   const scoreboard = createScoreboard(scene);
+  const dunkEffects = createDunkEffects(scene);
   const disposeSurroundings = createSurroundings(scene);
   const basketball = createBall(scene);
-  const audio = createAudio(camera, basketball.ball);
+  const audio = createAudio(camera, basketball.ball, scene);
   let points = 0;
-  const physics = createBallPhysics(basketball.ball, basketball.radius, audio.playBounce, () => {
+  const physics = createBallPhysics(basketball.ball, basketball.radius, audio.playBounce, (velocity, kind) => {
     points += 1;
     scoreboard.setScore(points);
+    court.onScore(basketball.ball.position, velocity);
+    if (kind === 'dunk') dunkEffects.score();
+    audio.playBuzzer();
     onScore(points);
   });
   renderer.xr.addEventListener('sessionend', audio.stop);
+  renderer.xr.addEventListener('sessionend', dunkEffects.reset);
   const controllers = createVrControllers(player, renderer);
-  const interaction = createBallInteraction(scene, player, renderer, basketball.ball, physics);
-  const locomotion = createLocomotion(player, camera, renderer);
+  const interaction = createBallInteraction(scene, player, renderer, basketball.ball, physics, settings.values);
+  const locomotion = createLocomotion(player, camera, renderer, settings.values);
+  const menu = createGameplayMenu(scene, renderer, settings);
+  const speedLines = createSpeedLines(camera);
+  const desktopDunkPosition = new THREE.Vector3();
+  const desktopDunkHand = new THREE.Vector3();
+  const desktopHandOffset = new THREE.Vector3();
+  let desktopDunkActive = false;
+  const onDesktopDunk = (event) => {
+    if (event.code !== 'KeyK' || event.repeat || renderer.xr.getSession() || menu.isOpen()) return;
+    camera.getWorldPosition(desktopDunkPosition);
+    if (!isInDunkZone(desktopDunkPosition)) return;
+    desktopDunkHand.set(desktopDunkPosition.x - 0.2, 1.5, desktopDunkPosition.z - 0.35);
+    if (!locomotion.startDesktopRimJump(desktopDunkHand)) return;
+    desktopHandOffset.copy(desktopDunkHand).sub(player.position);
+    desktopDunkActive = true;
+    physics.hold(desktopDunkHand, true);
+    audio.unlock();
+    audio.start();
+  };
+  window.addEventListener('keydown', onDesktopDunk);
   let previousTime = null;
   renderer.setAnimationLoop(render);
 
@@ -70,22 +100,47 @@ export function createScene(canvas, onScore = () => {}) {
   function render(time) {
     const dt = previousTime === null ? 1 / 72 : Math.min((time - previousTime) / 1000, 0.05);
     previousTime = time;
-    locomotion.update(dt);
-    interaction.update(dt);
-    physics.step(dt);
+    menu.update();
+    const menuOpen = menu.isOpen();
+    const movement = locomotion.update(dt, menuOpen);
+    speedLines.update(movement.phase === 'rising' || movement.phase === 'settling'
+      ? 1 : movement.speedFraction, dt);
+    if (desktopDunkActive && renderer.xr.getSession()) {
+      desktopDunkActive = false;
+      physics.release();
+    }
+    if (desktopDunkActive && !menuOpen) {
+      desktopDunkHand.copy(player.position).add(desktopHandOffset);
+      physics.hold(desktopDunkHand, true);
+      if (movement.hangStarted) {
+        physics.dunk();
+        desktopDunkActive = false;
+      }
+    }
+    interaction.update(dt, menuOpen, movement);
+    if (!menuOpen) {
+      physics.step(dt);
+      court.update(dt);
+      dunkEffects.update(dt, movement);
+    }
     renderer.render(scene, camera);
   }
 
   function dispose() {
     renderer.setAnimationLoop(null);
+    window.removeEventListener('keydown', onDesktopDunk);
+    menu.dispose();
     locomotion.dispose();
+    speedLines.dispose();
     interaction.dispose();
     controllers.dispose();
     renderer.xr.removeEventListener('sessionend', audio.stop);
+    renderer.xr.removeEventListener('sessionend', dunkEffects.reset);
     audio.dispose();
     basketball.dispose();
     scoreboard.dispose();
-    disposeCourt();
+    dunkEffects.dispose();
+    court.dispose();
     disposeSurroundings();
     renderer.dispose();
   }

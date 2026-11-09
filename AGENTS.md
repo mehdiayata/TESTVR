@@ -1,154 +1,70 @@
-# AGENTS.md — Développement WebXR / Meta Quest 3S
+# AGENTS.md — Développement de l'expérience WebXR
 
-## 1. Présentation du projet
+Ce dépôt est une expérience VR pour le navigateur du Meta Quest 3S. Ce fichier décrit les règles techniques communes. Les objectifs et contraintes propres à cette expérience se trouvent dans les Markdown de `docs-agent/`.
 
-Ce projet est consacré au développement d'expériences immersives en réalité virtuelle (VR), principalement destinées au **Meta Quest 3S**.
+## Lire le besoin avant de coder
 
-Les expériences doivent fonctionner directement dans le navigateur du casque grâce à WebXR, sans nécessiter la création d'une application Android native.
+- Au début d'une tâche, lire les documents pertinents de `docs-agent/`, en commençant par `docs-agent/PROJECT.md`. Le propriétaire peut ajouter d'autres Markdown dans ce dossier ; les consulter selon le sujet traité.
+- Examiner le code existant avant de modifier l'architecture. Conserver les décisions déjà prises pour cette expérience tant qu'elles répondent au besoin.
+- Si un point du besoin manque, avancer sur ce qui est clair et demander une précision seulement si elle conditionne la suite.
+- Ne pas ajouter de décor, de mécanique ou de dépendance sur la seule base du modèle de projet vierge.
 
-Le développement est réalisé avec VS Code et Codex, sous Debian WSL sur Windows 11.
+## Ressources disponibles
 
-## 2. Stack technique
+| Ressource | Rôle |
+| --- | --- |
+| JavaScript ES modules et Three.js | Scène 3D, rendu, WebXR, contrôleurs et audio spatial. |
+| Vite et Node.js dans Docker | Développement avec rechargement et compilation du site statique. Ne pas installer Node/npm sur Windows ou dans Debian pour ce projet. |
+| Docker Compose | Lance le serveur HTTPS local et isole les dépendances. `.env` contient le port et l'adresse locale du PC. |
+| Blender et Python dans un service Docker séparé | Création ou modification de modèles 3D exportés en `.glb` quand le besoin le demande. |
+| `public/assets/` | Modèles, textures et sons propres à l'expérience. Les sons sont fournis par le propriétaire ; Codex ne crée pas de sons. |
 
-- **JavaScript** : langage principal, avec modules ES.
-- **Three.js** : rendu et gestion des scènes 3D.
-- **WebXR** : immersion VR, suivi du casque et interaction avec les contrôleurs.
-- **Vite** : serveur de développement et compilation de production.
-- **Node.js** : exécuté exclusivement dans Docker.
-- **Docker Compose** : lancement de l'environnement local.
-- **Cloudflare Quick Tunnel** : accès HTTPS temporaire au serveur local depuis le Quest 3S.
-- **GitHub Pages** : hébergement des versions publiées.
+L'accès local au Quest utilise HTTPS avec un certificat généré par le projet. Le navigateur peut afficher un avertissement au premier accès. Aucune publication ni aucun tunnel n'est configuré par défaut.
 
-Éviter d'introduire des frameworks ou dépendances supplémentaires sans nécessité.
-
-## 3. Architecture du projet
-
-Structure cible indicative :
+## Organisation du code
 
 ```text
-test-vr/
-├── AGENTS.md
-├── compose.yaml
-├── Dockerfile
-├── .dockerignore
-├── .gitignore
-├── package.json
-├── package-lock.json
-├── vite.config.js
-├── index.html
-├── public/
-│   └── assets/
-├── src/
-│   ├── main.js
-│   ├── scene/
-│   ├── vr/
-│   └── utils/
-└── .github/
-    └── workflows/
+AGENTS.md                 règles techniques pour Codex
+docs-agent/               besoin et contexte de l'expérience, rédigés par le propriétaire
+src/main.js               démarrage, rendu, cycle de vie de l'application
+src/scene/                scène, objets 3D, éclairage et animations propres au jeu
+src/vr/                   configuration WebXR, contrôleurs, interactions et caméra libre PC
+src/utils/                fonctions réellement partagées, si nécessaire
+public/assets/models/     modèles 3D chargés par le navigateur
+public/assets/audio/      sons fournis pour l'expérience
+public/assets/textures/   textures, si l'expérience en utilise
+scripts/blender/           scripts de génération de modèles 3D, si nécessaires
+compose.yaml              services Docker du projet
+vite.config.js            configuration Vite et HTTPS
 ```
 
-Responsabilités :
+Les dossiers `src/scene/`, `src/utils/` et `public/assets/textures/` peuvent être créés au fur et à mesure. Garder `src/main.js` centré sur l'assemblage : extraire une fonctionnalité quand elle devient suffisamment distincte, sans multiplier les fichiers artificiellement.
 
-- `src/main.js` : initialisation de l'application.
-- `src/scene/` : scènes, objets 3D, éclairages et animations.
-- `src/vr/` : configuration WebXR, contrôleurs et interactions VR.
-- `src/utils/` : fonctions techniques réutilisables.
-- `public/assets/` : modèles 3D, textures, sons et autres ressources statiques.
+## Code lisible et maintenable
 
-La structure peut évoluer en fonction des besoins réels du projet.
+- Utiliser des noms explicites, des fonctions courtes et des modules à responsabilité claire. Séparer les règles du jeu, les objets de scène et les entrées VR.
+- Commenter les intentions, les choix de coordonnées, les contraintes WebXR et les calculs difficiles à déduire du code. Éviter les commentaires qui répètent simplement l'instruction suivante.
+- Regrouper les constantes réglables, notamment échelles, vitesses et seuils. Garder les unités cohérentes ; dans la scène VR, une unité Three.js représente généralement un mètre.
+- Gérer les erreurs de chargement des assets et les absences de capacités du navigateur sans laisser une scène cassée silencieusement.
+- Prévoir le nettoyage des listeners, boucles, géométries, matériaux, textures et sons lorsque les objets ou la scène sont détruits. Ne pas allouer inutilement d'objets à chaque image.
+- Ajouter des dépendances seulement si leur utilité est concrète pour l'expérience. Ne jamais commettre `node_modules`, les certificats, les secrets ou les tokens.
+- Quand l'architecture ou une commande change, mettre à jour la documentation concernée.
 
-## 4. Règles de développement
+## VR et performances
 
-- Privilégier un code simple, lisible, modulaire et maintenable.
-- Utiliser JavaScript moderne avec `import` / `export`.
-- Éviter les fichiers volumineux et les responsabilités mélangées.
-- Séparer la logique de la scène 3D, les interactions VR et l'initialisation.
-- Ne pas ajouter de complexité architecturale inutile.
-- Éviter les dépendances non indispensables.
-- Prévoir la gestion des erreurs et le nettoyage des ressources Three.js.
-- Ne jamais intégrer de secrets ou de tokens dans le dépôt Git.
+- Chaque jeu doit être jouable en VR sur le Meta Quest 3S et testable sans casque sur PC. Conserver une caméra libre de développement : souris pour regarder, ZQSD/WASD pour se déplacer, Espace/Maj pour monter ou descendre. Elle ne doit pas déplacer la vue pendant une session WebXR.
+- Rendre les interactions importantes vérifiables sur PC avec des commandes de test adaptées quand c'est possible. Ces commandes servent au développement et ne remplacent pas la validation des gestes et du confort dans le Quest.
+- Viser le navigateur du Meta Quest 3S avec suivi 6DoF ; garder un affichage PC utilisable tout au long du développement.
+- Prévoir correctement l'entrée et la sortie de session VR, la reprise du son après une action du joueur et la perte éventuelle d'un contrôleur.
+- Choisir les interactions et le déplacement à partir de `docs-agent/`, sans imposer un mode de contrôle commun à tous les jeux. Tenir compte du confort et de l'échelle humaine.
+- Surveiller la charge du casque : géométries et matériaux réutilisés, textures raisonnables, peu de lumières coûteuses et aucune opération lourde répétée dans la boucle de rendu.
+- Signaler ce qui exige un test dans le Quest. Une compilation réussie ne valide ni le confort, ni les commandes, ni les performances dans le casque.
 
-## 5. Contraintes VR
+## Méthode de travail
 
-Le Meta Quest 3S est la plateforme cible principale.
+1. Lire le besoin dans `docs-agent/`, puis inspecter les fichiers concernés.
+2. Expliquer brièvement tout changement d'architecture important et implémenter la solution la plus simple qui couvre le besoin.
+3. Vérifier la compilation avec `sh scripts/check-env.sh` lorsque c'est pertinent. Les commandes Node/npm passent uniquement par Docker.
+4. Résumer les changements, les vérifications effectuées et les points à tester réellement dans le Quest, sans prétendre avoir effectué ce test.
 
-Toute fonctionnalité doit tenir compte des contraintes suivantes :
-
-- Compatibilité avec le navigateur Meta Quest et WebXR.
-- Utilisation des contrôleurs VR pour les interactions immersives.
-- Prise en charge des six degrés de liberté (6DoF).
-- Performances adaptées à un casque VR autonome.
-- Limitation des appels de rendu, des allocations répétées et des objets inutiles.
-- Optimisation raisonnable des textures, matériaux, lumières et géométries.
-- Gestion correcte de l'entrée et de la sortie du mode VR.
-
-L'expérience doit également rester consultable sur un navigateur PC classique lorsque cela est possible.
-
-Les fonctionnalités nécessitant un casque doivent être testées sur le Quest 3S.
-
-## 6. Environnement de développement
-
-Le projet est développé dans le système de fichiers Debian WSL.
-
-**Node.js et npm ne doivent pas être installés sur Windows pour ce projet.**
-
-Toutes les commandes Node.js et npm doivent être exécutées via Docker.
-
-Docker Compose doit permettre :
-
-- De démarrer le serveur Vite.
-- D'accéder au projet depuis le navigateur Windows.
-- De bénéficier du rechargement automatique lors des modifications.
-- De conserver les dépendances dans un environnement Docker isolé.
-
-Le code source reste accessible directement depuis VS Code.
-
-Ne pas modifier la configuration Docker globale, WSL ou les autres projets présents sur la machine.
-
-## 7. Tests sur le Meta Quest 3S
-
-Le développement doit pouvoir être testé en VR sans publication sur GitHub Pages.
-
-Prévoir :
-
-1. Un serveur Vite local accessible depuis Windows.
-2. Un accès HTTPS temporaire via Cloudflare Quick Tunnel.
-3. Une URL HTTPS ouvrable dans le navigateur du Quest 3S.
-4. Un bouton permettant d'entrer en mode VR.
-5. Le rechargement de la scène pendant le développement, dans la mesure permise par le navigateur et la session WebXR.
-
-L'accès HTTPS doit être compatible avec les WebSockets de Vite pour le rechargement automatique.
-
-Ne pas désactiver les protections de sécurité du navigateur pour faire fonctionner WebXR.
-
-Les tunnels de développement ne doivent pas exposer de données sensibles.
-
-## 8. Publication
-
-Les versions publiques doivent pouvoir être déployées sur GitHub Pages.
-
-- Produire un site statique avec `vite build`.
-- Configurer correctement le chemin de base Vite pour GitHub Pages.
-- Ne pas nécessiter de serveur Node.js en production.
-- Prévoir une publication automatisée via GitHub Actions.
-- Ne jamais inclure les dépendances `node_modules` dans Git.
-
-La publication GitHub Pages est distincte des tests VR locaux.
-
-## 9. Consignes pour Codex
-
-Avant toute modification importante :
-
-1. Examiner la structure et le code existants.
-2. Respecter les conventions du projet.
-3. Expliquer brièvement les changements architecturaux nécessaires.
-4. Privilégier la solution la plus simple répondant au besoin.
-
-Après une modification :
-
-- Vérifier la compilation lorsque cela est possible.
-- Signaler les erreurs et les limites de validation.
-- Ne pas prétendre avoir testé le rendu dans le casque sans test réel.
-- Fournir les commandes Docker nécessaires.
-
-**Priorité : développer rapidement des expériences VR fonctionnelles, sans sacrifier la maintenabilité ni compliquer inutilement l'environnement.**
+Commandes utiles : `docker compose up -d app` pour démarrer, `docker compose down` pour arrêter, `docker compose run --rm blender --python scripts/blender/mon_modele.py` pour un script Blender existant.

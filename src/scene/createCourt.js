@@ -1,11 +1,12 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const COURT_WIDTH = 15;
 const COURT_LENGTH = 14;
 const FAR_LINE = -13;
 const NEAR_LINE = 1;
 const HOOP_Z = -11.55;
-export const BASKET = Object.freeze({ x: 0, y: 3.05, z: HOOP_Z, rimRadius: 0.23, boardFront: -12.06 });
+export const BASKET = Object.freeze({ x: 0, y: 3.05, z: HOOP_Z, rimRadius: 0.34, boardFront: -12.06 });
 
 export function createCourt(scene) {
   const group = new THREE.Group();
@@ -80,12 +81,74 @@ export function createCourt(scene) {
   stripe(6.65, FAR_LINE, 6.65, HOOP_Z);
   arc(0, HOOP_Z, 6.65, 0, Math.PI, 72);
 
-  createHoop(group);
+  const fallbackHoop = new THREE.Group();
+  group.add(fallbackHoop);
+  createHoop(fallbackHoop);
 
-  return () => {
+  let disposed = false;
+  let netMesh = null;
+  let netRest = null;
+  const netOffset = new THREE.Vector3();
+  const netVelocity = new THREE.Vector3();
+  new GLTFLoader().load(
+    `${import.meta.env.BASE_URL}assets/models/street-hoop.glb`,
+    ({ scene: model }) => {
+      if (disposed) {
+        disposeGroup(model);
+        return;
+      }
+      model.position.set(BASKET.x, BASKET.y, BASKET.z);
+      model.traverse((object) => {
+        if (object.isMesh && object.name !== 'BasketNet') object.castShadow = true;
+      });
+      group.add(model);
+      group.remove(fallbackHoop);
+      disposeGroup(fallbackHoop);
+      netMesh = model.getObjectByName('BasketNet');
+      if (netMesh?.isMesh) {
+        const position = netMesh.geometry.getAttribute('position');
+        position.setUsage(THREE.DynamicDrawUsage);
+        netRest = new Float32Array(position.array);
+      } else {
+        console.warn('Le modèle du panier ne contient pas de filet animé.');
+        netMesh = null;
+      }
+    },
+    undefined,
+    (error) => console.warn('Modèle Blender du panier indisponible ; panier simple conservé.', error),
+  );
+
+  function onScore(ballPosition, ballVelocity) {
+    if (!netMesh) return;
+    netVelocity.x += ballVelocity.x * 0.11 + (ballPosition.x - BASKET.x) * 0.7;
+    netVelocity.y -= 1.2;
+    netVelocity.z += ballVelocity.z * 0.11 + (ballPosition.z - BASKET.z) * 0.7;
+  }
+
+  function update(dt) {
+    if (!netRest || netVelocity.lengthSq() + netOffset.lengthSq() < 0.000001) return;
+    const step = Math.min(dt, 0.05);
+    // The rim stays fixed while the lower knots follow a damped spring.
+    netVelocity.addScaledVector(netOffset, -25 * step).multiplyScalar(Math.exp(-7 * step));
+    netOffset.addScaledVector(netVelocity, step);
+    const position = netMesh.geometry.getAttribute('position');
+    for (let index = 0; index < position.count; index += 1) {
+      const offset = index * 3;
+      const weight = THREE.MathUtils.clamp(-netRest[offset + 1] / 0.48, 0, 1);
+      position.array[offset] = netRest[offset] + netOffset.x * weight;
+      position.array[offset + 1] = netRest[offset + 1] + netOffset.y * weight;
+      position.array[offset + 2] = netRest[offset + 2] + netOffset.z * weight;
+    }
+    position.needsUpdate = true;
+  }
+
+  function dispose() {
+    disposed = true;
     scene.remove(group);
     disposeGroup(group);
-  };
+  }
+
+  return { onScore, update, dispose };
 }
 
 function createHoop(group) {
@@ -122,7 +185,7 @@ function createHoop(group) {
   square.position.set(0, 3.38, -12.052);
   group.add(square);
 
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.026, 8, 32), rimMaterial);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(BASKET.rimRadius, 0.026, 8, 40), rimMaterial);
   rim.rotation.x = Math.PI / 2;
   rim.position.set(0, 3.05, HOOP_Z);
   rim.castShadow = true;
@@ -136,12 +199,12 @@ function createHoop(group) {
   for (let i = 0; i < 12; i += 1) {
     const angle = i * Math.PI / 6;
     const next = (i + 1) * Math.PI / 6;
-    const topX = Math.cos(angle) * 0.23;
-    const topZ = HOOP_Z + Math.sin(angle) * 0.23;
-    const midX = Math.cos(angle + Math.PI / 12) * 0.17;
-    const midZ = HOOP_Z + Math.sin(angle + Math.PI / 12) * 0.17;
-    const bottomX = Math.cos(next) * 0.13;
-    const bottomZ = HOOP_Z + Math.sin(next) * 0.13;
+    const topX = Math.cos(angle) * BASKET.rimRadius;
+    const topZ = HOOP_Z + Math.sin(angle) * BASKET.rimRadius;
+    const midX = Math.cos(angle + Math.PI / 12) * 0.25;
+    const midZ = HOOP_Z + Math.sin(angle + Math.PI / 12) * 0.25;
+    const bottomX = Math.cos(next) * 0.17;
+    const bottomZ = HOOP_Z + Math.sin(next) * 0.17;
     netPositions.push(topX, 3.03, topZ, midX, 2.82, midZ);
     netPositions.push(midX, 2.82, midZ, bottomX, 2.63, bottomZ);
   }

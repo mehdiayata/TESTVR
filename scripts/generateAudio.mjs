@@ -43,6 +43,28 @@ for (let i = 0; i < bounce.length; i += 1) {
 }
 save('basketball-bounce.wav', bounce);
 
+const buzzer = new Float32Array(Math.floor(rate * 1.15));
+let buzzerSeed = 71;
+function buzzerNoise() {
+  buzzerSeed = (buzzerSeed * 1664525 + 1013904223) >>> 0;
+  return buzzerSeed / 2147483648 - 1;
+}
+for (let i = 0; i < buzzer.length; i += 1) {
+  const t = i / rate;
+  const pulseTime = t < 0.38 ? t : t >= 0.48 && t < 0.98 ? t - 0.48 : -1;
+  if (pulseTime < 0) continue;
+  const duration = t < 0.38 ? 0.38 : 0.5;
+  const envelope = Math.min(1, pulseTime / 0.012, (duration - pulseTime) / 0.075);
+  const wobble = 187 * t + 2.5 * Math.sin(2 * Math.PI * 8 * t);
+  buzzer[i] = envelope * (
+    0.62 * Math.sin(2 * Math.PI * wobble)
+    + 0.26 * Math.sin(4 * Math.PI * wobble)
+    + 0.12 * Math.sin(6 * Math.PI * wobble)
+    + 0.07 * buzzerNoise()
+  );
+}
+save('basket-buzzer.wav', buzzer);
+
 const beat = 0.625;
 const music = new Float32Array(rate * 16 * beat);
 
